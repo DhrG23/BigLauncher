@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.Settings
@@ -23,35 +24,39 @@ class AdminActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
     private lateinit var box: LinearLayout
-    private val REQ_CONTACT = 7
+    private val REQ_FAV = 7
+    private val REQ_SOS = 8
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         prefs = Prefs(this)
-        box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(Ui.dp(this@AdminActivity, 16), Ui.dp(this@AdminActivity, 32), Ui.dp(this@AdminActivity, 16), Ui.dp(this@AdminActivity, 16))
-        }
-        val scroll = ScrollView(this).apply { setBackgroundColor(Ui.BG); addView(box) }
-        setContentView(scroll)
+        Ui.applyTheme(prefs)
+        val p = Ui.dp(this, 16)
+        box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(p, Ui.dp(this@AdminActivity, 32), p, p) }
+        setContentView(ScrollView(this).apply { setBackgroundColor(Ui.BG); addView(box) })
 
         box.addView(Ui.text(this, "Admin", 30f, Color.WHITE, true))
         status = Ui.text(this, "", 16f, 0xFFCCCCCC.toInt())
         box.addView(status)
 
-        add("Choose home-screen apps") { pickApps("Home screen apps", prefs.visible()) { prefs.setVisible(it) } }
-        add("Choose apps allowed to notify") { pickApps("Allowed notifications", prefs.notifAllowed()) { prefs.setNotifAllowed(it) } }
-        add("Extra helper apps (camera, gallery...)") { pickApps("Allowed but hidden helpers", prefs.helpers()) { prefs.setHelpers(it) } }
-        add("Add favorite from contacts") {
-            startActivityForResult(
-                Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI), REQ_CONTACT
-            )
-        }
-        add("Remove a favorite") { removeFavorite() }
+        section("Look")
+        add("Edit look, widgets & app order") { startActivity(Intent(this, UiEditActivity::class.java)) }
+        add("Choose home-screen apps") { Pickers.apps(this, "Home screen apps", prefs.visible()) { prefs.setVisible(it); refreshStatus() } }
+
+        section("Notifications")
+        add("Notification center (allow / block apps)") { startActivity(Intent(this, NotifCenterActivity::class.java)) }
         add("Grant notification access (Settings)") {
             try { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             catch (e: Exception) { toast("Blocked. Use Maintenance mode first, or the adb command in README.") }
         }
+
+        section("People")
+        add("Add favorite from contacts") { pickContact(REQ_FAV) }
+        add("Remove a favorite") { removeFavorite() }
+        add("Set SOS contact") { pickContact(REQ_SOS) }
+
+        section("Kiosk")
+        add("Extra helper apps (camera, gallery...)") { Pickers.apps(this, "Allowed but hidden helpers", prefs.helpers()) { prefs.setHelpers(it) } }
         add("ENABLE LOCKDOWN (kiosk)") {
             Policy.lockOn(this)
             toast(if (Policy.isOwner(this)) "Lockdown on" else "Not device owner: soft lock only")
@@ -62,6 +67,8 @@ class AdminActivity : Activity() {
             Policy.lockOff(this)
             startActivity(Intent(Settings.ACTION_SETTINGS))
         }
+
+        section("Security")
         add("Change PIN") { changePin() }
         add("Remove device owner (undo everything)") {
             AlertDialog.Builder(this).setTitle("Remove device owner?")
@@ -82,7 +89,12 @@ class AdminActivity : Activity() {
         status.text = "Device owner: ${Policy.isOwner(this)}\n" +
             "Lockdown on: ${prefs.locked}\n" +
             "Notification access: $listener\n" +
-            "Home apps: ${prefs.visible().size}   Favorites: ${prefs.favorites().size}"
+            "Home apps: ${prefs.visible().size}   Favorites: ${prefs.favorites().size}\n" +
+            "SOS: ${prefs.sosName.ifBlank { prefs.sosNumber.ifBlank { "not set" } }}"
+    }
+
+    private fun section(t: String) {
+        box.addView(Ui.text(this, t, 20f, 0xFFFFD600.toInt(), true).apply { setPadding(0, Ui.dp(this@AdminActivity, 18), 0, 0) })
     }
 
     private fun add(label: String, onClick: () -> Unit) {
@@ -93,23 +105,8 @@ class AdminActivity : Activity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
-    private fun pickApps(title: String, current: List<String>, save: (List<String>) -> Unit) {
-        val pm = packageManager
-        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-            .distinctBy { it.first }
-            .filter { it.first != packageName }
-            .sortedBy { it.second.lowercase() }
-        val checked = BooleanArray(apps.size) { apps[it].first in current }
-        AlertDialog.Builder(this).setTitle(title)
-            .setMultiChoiceItems(apps.map { it.second }.toTypedArray(), checked) { _, i, v -> checked[i] = v }
-            .setPositiveButton("Save") { _, _ ->
-                val chosen = apps.filterIndexed { i, _ -> checked[i] }.map { it.first }
-                val kept = current.filter { chosen.contains(it) }
-                save(kept + chosen.filter { it !in kept })
-                refreshStatus()
-            }
-            .setNegativeButton("Cancel", null).show()
+    private fun pickContact(req: Int) {
+        startActivityForResult(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI), req)
     }
 
     private fun removeFavorite() {
@@ -133,24 +130,28 @@ class AdminActivity : Activity() {
             }.setNegativeButton("Cancel", null).show()
     }
 
+    private fun readContact(uri: Uri): Pair<String, String>? =
+        contentResolver.query(
+            uri,
+            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null
+        )?.use { c ->
+            if (c.moveToFirst())
+                (c.getString(0) ?: "?").replace("|", " ").replace("\n", " ") to
+                    (c.getString(1) ?: "").replace("|", "").replace("\n", "")
+            else null
+        }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         super.onActivityResult(req, res, data)
         val uri = data?.data ?: return
-        if (req == REQ_CONTACT && res == RESULT_OK) {
-            contentResolver.query(
-                uri,
-                arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
-                null, null, null
-            )?.use { c ->
-                if (c.moveToFirst()) {
-                    val name = (c.getString(0) ?: "?").replace("|", " ").replace("\n", " ")
-                    val num = (c.getString(1) ?: "").replace("|", "").replace("\n", "")
-                    prefs.saveFavorites(prefs.favorites() + (name to num))
-                    toast("Added $name")
-                    refreshStatus()
-                }
-            }
+        if (res != RESULT_OK) return
+        val (name, num) = readContact(uri) ?: return
+        when (req) {
+            REQ_FAV -> { prefs.saveFavorites(prefs.favorites() + (name to num)); toast("Added $name") }
+            REQ_SOS -> { prefs.sosName = name; prefs.sosNumber = num; toast("SOS contact: $name") }
         }
+        refreshStatus()
     }
 }

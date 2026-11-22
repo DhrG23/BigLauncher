@@ -10,7 +10,11 @@ import android.graphics.drawable.RippleDrawable
 import android.widget.TextView
 
 object Ui {
-    val BG = 0xFF101418.toInt()
+    var BG = 0xFF101418.toInt()
+
+    fun applyTheme(p: Prefs) {
+        BG = when (p.bgTheme) { 1 -> 0xFF000000.toInt(); 2 -> 0xFF0D1B3E.toInt(); else -> 0xFF101418.toInt() }
+    }
 
     fun dp(c: Context, v: Int) = (v * c.resources.displayMetrics.density).toInt()
 

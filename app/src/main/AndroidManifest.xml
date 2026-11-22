@@ -24,6 +24,8 @@
         </activity>
 
         <activity android:name=".AdminActivity" android:exported="false" />
+        <activity android:name=".UiEditActivity" android:exported="false" />
+        <activity android:name=".NotifCenterActivity" android:exported="false" />
 
         <receiver
             android:name=".AdminReceiver"

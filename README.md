@@ -1,4 +1,4 @@
-# Big Launcher (Grandpa phone)
+# Big Launcher 
 
 Open this folder in Android Studio (File > Open). Let Gradle sync (needs internet the first time).
 
@@ -7,7 +7,7 @@ Run it. Android asks "Select a Home app" -> pick Big Launcher.
 Tap the clock 5 times -> PIN 1234 -> Admin.
 Lockdown only really locks if the app is device owner (see below).
 
-## Narzo 20 setup order
+## setup order
 1. Factory reset. SKIP adding any Google account.
 2. Enable Developer options + USB debugging. Plug into PC.
 3. Install: Android Studio Build > Build APK(s), then
@@ -32,3 +32,15 @@ Pop-up from an app does nothing? Add that app under "Extra helper apps".
 
 ## Undo everything
 Admin > Remove device owner.
+
+## Pages
+Swipe right from Home -> Family numbers. Swipe left -> back Home.
+Swipe left from Home -> Widgets (date, messages, SOS, flashlight, volume, info card). Swipe right -> back.
+Bottom labels are tappable too.
+
+## Customizing (tap clock 5x, PIN)
+- "+ Add app" tile on Home asks for the PIN, then lists installed apps.
+  (Apps must already be installed: use Maintenance mode + Play Store first.)
+- Admin > Edit look: columns, text size, background, icons, order, rename, colors, widgets, info card.
+- Admin > Notification center: per-app allow/block switches and a log of what was blocked.
+- Admin > Set SOS contact: used by the SOS widget.
